@@ -1,0 +1,25 @@
+-- Drop existing objects
+DROP PROCEDURE DeleteByStatusProc IF EXISTS;
+DROP PROCEDURE DeleteByStatus IF EXISTS;
+DROP PROCEDURE CountByStatus IF EXISTS;
+DROP PROCEDURE InsertOrder IF EXISTS;
+DROP TABLE ORDERS IF EXISTS;
+
+CREATE TABLE ORDERS (
+    order_id      BIGINT NOT NULL,
+    customer_id   BIGINT NOT NULL,
+    amount        DECIMAL NOT NULL,
+    status        VARCHAR(20) NOT NULL,  -- PENDING, SHIPPED, DELIVERED
+    order_date    TIMESTAMP DEFAULT NOW,
+    PRIMARY KEY (order_id, customer_id)
+);
+
+PARTITION TABLE ORDERS ON COLUMN customer_id;
+
+CREATE PROCEDURE InsertOrder
+    PARTITION ON TABLE ORDERS COLUMN customer_id PARAMETER 1
+    AS INSERT INTO ORDERS VALUES (?, ?, ?, ?, ?);
+
+CREATE PROCEDURE DIRECTED FROM CLASS com.example.procedures.DeleteByStatusProc;
+CREATE PROCEDURE CountByStatus DIRECTED
+    AS SELECT COUNT(*) AS cnt FROM ORDERS WHERE status = ?;
