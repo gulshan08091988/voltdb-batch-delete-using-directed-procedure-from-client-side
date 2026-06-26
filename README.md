@@ -1,6 +1,6 @@
 # VoltDB Directed Procedure Demo
 
-A training project demonstrating how to use **DIRECTED stored procedures** for efficient bulk operations across all partitions in a VoltDB cluster.
+This demonstrating how to use **DIRECTED stored procedures** for efficient bulk operations across all partitions in a VoltDB cluster.
 
 ## Overview
 
