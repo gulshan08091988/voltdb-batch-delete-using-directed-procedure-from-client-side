@@ -1,65 +1,197 @@
-VoltDB Batch Delete Demo
+# VoltDB Directed Procedure Demo
 
-  This is a VoltDB training/demo project that demonstrates how to use DIRECTED stored procedures for efficient bulk deletion across all partitions in a VoltDB cluster.
+A training project demonstrating how to use **DIRECTED stored procedures** for efficient bulk operations across all partitions in a VoltDB cluster.
 
-  Purpose
+## Overview
 
-  Shows the proper pattern for deleting large amounts of data from VoltDB by a non-partition-key column (like status) without causing cluster latency spikes.
+This demo shows the proper pattern for deleting large amounts of data from VoltDB by a non-partition-key column (like `status`) without causing cluster latency spikes.
 
-  Key Concepts
+### What is a DIRECTED Procedure?
 
-  1. DIRECTED Procedures - Execute on ALL partitions simultaneously via callAllPartitionProcedure()
-  2. Client-Side Batching - Delete in small batches (2,000 rows per partition) to keep transactions short
-  3. Rate Limiting - Add delays between batches to allow other transactions to complete
+- A procedure marked with the `DIRECTED` keyword in DDL
+- Executes on **ALL partitions** via `callAllPartitionProcedure()`
+- Each partition processes its local data independently
+- Results are returned as an array (one result per partition)
 
-  Usage
+### Use Cases
 
-  # Build the project
-  cd /Users/gulshansharma/.claude/skills/voltdb-batch-delete
-  mvn clean package
+- Bulk delete by non-partition-key column (e.g., status, date)
+- Aggregate counts across all partitions
+- Data cleanup/archival operations
 
-  # Run commands (requires a running VoltDB cluster on localhost:21212)
-  java -cp target/directed-procedure-demo-1.0-SNAPSHOT.jar:target/lib/* \
-    com.example.DirectedProcedureDemo <command>
+## Key Concepts
 
-  Available commands:
-  ┌─────────────────────────────┬───────────────────────────────────────────────────────┐
-  │           Command           │                      Description                      │
-  ├─────────────────────────────┼───────────────────────────────────────────────────────┤
-  │ load <count> [tps]          │ Load test data (e.g., load 50000000 for 50M rows)     │
-  ├─────────────────────────────┼───────────────────────────────────────────────────────┤
-  │ delete <status> [batchSize] │ Delete orders by status (e.g., delete DELIVERED 5000) │
-  ├─────────────────────────────┼───────────────────────────────────────────────────────┤
-  │ count <status>              │ Count orders by status using DIRECTED procedure       │
-  ├─────────────────────────────┼───────────────────────────────────────────────────────┤
-  │ stats                       │ Show order statistics grouped by status               │
-  └─────────────────────────────┴───────────────────────────────────────────────────────┘
-  Status values: PENDING, SHIPPED, DELIVERED
+### Client-Side Batching
 
-  Example Workflow
+Each VoltDB procedure invocation equals one transaction. To keep cluster latency low:
 
-  # Load 1 million test orders
-  java ... DirectedProcedureDemo load 1000000
+1. Delete a **limited number of rows** per call (e.g., 2,000 per partition)
+2. Client calls the procedure **repeatedly** until all rows are deleted
+3. Between calls, other transactions can execute
+4. Cluster latency stays low (< 100ms per batch)
 
-  # Check statistics
-  java ... DirectedProcedureDemo stats
+### Rate Limiting
 
-  # Delete all DELIVERED orders in batches
-  java ... DirectedProcedureDemo delete DELIVERED
+Add delays between batches to reduce cluster pressure and allow other workloads to proceed.
 
-# 1. LOAD DATA
-  java -cp "target/classes:target/lib/*" com.example.LoadData <count> [tps]
-  java -cp "target/classes:target/lib/*" com.example.LoadData 50000000          # 80K TPS default
-  java -cp "target/classes:target/lib/*" com.example.LoadData 50000000 100000   # 100K TPS
+## Prerequisites
 
-  # 2. DELETE BY STATUS (DIRECTED + Client-Side Batching)
-  java -cp "target/classes:target/lib/*" com.example.DeleteByStatus <status> [batchSize]
-  java -cp "target/classes:target/lib/*" com.example.DeleteByStatus DELIVERED        # 2000 rows/partition
-  java -cp "target/classes:target/lib/*" com.example.DeleteByStatus DELIVERED 5000   # 5000 rows/partition
+- Java 17+
+- Maven 3.6+
+- Running VoltDB cluster (localhost:21212)
 
-  # 3. COUNT BY STATUS (DIRECTED + Async)
-  java -cp "target/classes:target/lib/*" com.example.CountByStatus <status>
-  java -cp "target/classes:target/lib/*" com.example.CountByStatus DELIVERED
+## Building
 
-  # 4. SHOW STATISTICS
-  java -cp "target/classes:target/lib/*" com.example.ShowStats
+```bash
+cd voltdb-batch-delete
+mvn clean package
+```
+
+This creates:
+- `target/directed-procedure-demo-1.0-SNAPSHOT.jar` - Main application JAR
+- `target/directed-procedure-demo-1.0-SNAPSHOT-procedures.jar` - Procedures JAR for VoltDB deployment
+
+## Schema Setup
+
+Before running, deploy the schema and procedures to VoltDB:
+
+```sql
+-- Create the ORDERS table
+CREATE TABLE ORDERS (
+    order_id BIGINT NOT NULL,
+    customer_id BIGINT NOT NULL,
+    amount DECIMAL,
+    status VARCHAR(20),
+    order_date TIMESTAMP,
+    PRIMARY KEY (order_id, customer_id)
+);
+
+PARTITION TABLE ORDERS ON COLUMN customer_id;
+
+CREATE INDEX idx_orders_status ON ORDERS (status);
+
+-- Create procedures
+CREATE PROCEDURE InsertOrder AS
+    INSERT INTO ORDERS VALUES (?, ?, ?, ?, ?);
+
+CREATE PROCEDURE DIRECTED CountByStatus AS
+    SELECT COUNT(*) AS cnt FROM ORDERS WHERE status = ?;
+
+CREATE PROCEDURE DIRECTED FROM CLASS com.example.procedures.DeleteByStatusProc;
+```
+
+Load the procedures JAR:
+```bash
+sqlcmd
+> load classes target/directed-procedure-demo-1.0-SNAPSHOT-procedures.jar;
+```
+
+## Usage
+
+```bash
+java -cp target/directed-procedure-demo-1.0-SNAPSHOT.jar:target/lib/* \
+  com.example.DirectedProcedureDemo <command> [options]
+```
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `load <count> [tps]` | Load test data with optional TPS limit |
+| `delete <status> [batchSize]` | Delete orders by status using DIRECTED procedure |
+| `count <status>` | Count orders by status using DIRECTED procedure |
+| `stats` | Show order statistics grouped by status |
+
+### Status Values
+
+- `PENDING`
+- `SHIPPED`
+- `DELIVERED`
+
+## Examples
+
+### Load Test Data
+
+```bash
+# Load 1 million orders at default 80K TPS
+java -cp target/directed-procedure-demo-1.0-SNAPSHOT.jar:target/lib/* \
+  com.example.DirectedProcedureDemo load 1000000
+
+# Load 50 million orders at 100K TPS
+java -cp target/directed-procedure-demo-1.0-SNAPSHOT.jar:target/lib/* \
+  com.example.DirectedProcedureDemo load 50000000 100000
+```
+
+### Show Statistics
+
+```bash
+java -cp target/directed-procedure-demo-1.0-SNAPSHOT.jar:target/lib/* \
+  com.example.DirectedProcedureDemo stats
+```
+
+### Count by Status
+
+```bash
+java -cp target/directed-procedure-demo-1.0-SNAPSHOT.jar:target/lib/* \
+  com.example.DirectedProcedureDemo count DELIVERED
+```
+
+### Delete by Status
+
+```bash
+# Delete DELIVERED orders with default batch size (2000 rows/partition)
+java -cp target/directed-procedure-demo-1.0-SNAPSHOT.jar:target/lib/* \
+  com.example.DirectedProcedureDemo delete DELIVERED
+
+# Delete with custom batch size (5000 rows/partition)
+java -cp target/directed-procedure-demo-1.0-SNAPSHOT.jar:target/lib/* \
+  com.example.DirectedProcedureDemo delete DELIVERED 5000
+```
+
+## Configuration
+
+### Load Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `MAX_LOAD_TPS` | 80,000 | Target transactions per second |
+| `MAX_OUTSTANDING` | 200 | Max concurrent requests |
+
+### Delete Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `DELETE_BATCH_SIZE` | 2,000 | Rows deleted per partition per call |
+| `DELETE_DELAY_MS` | 10 | Delay between batches (ms) |
+
+## Project Structure
+
+```
+voltdb-batch-delete/
+├── pom.xml
+├── README.md
+└── src/main/java/com/example/
+    ├── DirectedProcedureDemo.java    # Main application
+    └── procedures/
+        └── DeleteByStatusProc.java   # DIRECTED stored procedure
+```
+
+## How It Works
+
+### Delete Flow
+
+1. Client calls `callAllPartitionProcedure("DeleteByStatusProc", status, batchSize)`
+2. VoltDB executes the procedure on ALL partitions simultaneously
+3. Each partition deletes up to `batchSize` rows matching the status
+4. Client receives results from all partitions (deleted count per partition)
+5. If any partition deleted rows, repeat from step 1
+6. When all partitions return 0, deletion is complete
+
+### Why Not Loop Inside the Procedure?
+
+In VoltDB, each procedure invocation is one transaction. Looping inside the procedure:
+- Creates one long-running transaction
+- Blocks other transactions on affected partitions
+- Can cause latency spikes cluster-wide
+
+Client-side batching keeps each transaction short, allowing other workloads to interleave.
