@@ -43,7 +43,8 @@ Add delays between batches to reduce cluster pressure and allow other workloads 
 ## Building
 
 ```bash
-cd voltdb-batch-delete
+cd voltdb-batch-delete-using-directed-procedure-from-client-side
+cd 
 mvn clean package
 ```
 
@@ -67,8 +68,7 @@ CREATE TABLE ORDERS (
 );
 
 PARTITION TABLE ORDERS ON COLUMN customer_id;
-
-CREATE INDEX idx_orders_status ON ORDERS (status);
+CREATE INDEX IDX_ORDERS_STATUS_ORDER ON ORDERS (STATUS, ORDER_ID, CUSTOMER_ID);
 
 -- Create procedures
 CREATE PROCEDURE InsertOrder AS
