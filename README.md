@@ -57,27 +57,40 @@ This creates:
 Before running, deploy the schema and procedures to VoltDB:
 
 ```sql
--- Create the ORDERS table
+file -inlinebatch END_OF_BATCH
 CREATE TABLE ORDERS (
-    order_id BIGINT NOT NULL,
-    customer_id BIGINT NOT NULL,
-    amount DECIMAL,
-    status VARCHAR(20),
-    order_date TIMESTAMP,
-    PRIMARY KEY (order_id, customer_id)
+   ORDER_ID bigint NOT NULL,
+   CUSTOMER_ID bigint NOT NULL,
+   AMOUNT decimal NOT NULL,
+   STATUS varchar(20) NOT NULL,
+   ORDER_DATE timestamp DEFAULT CURRENT_TIMESTAMP,
+   PRIMARY KEY (ORDER_ID, CUSTOMER_ID)
 );
-
-PARTITION TABLE ORDERS ON COLUMN customer_id;
+PARTITION TABLE ORDERS ON COLUMN CUSTOMER_ID;
 CREATE INDEX IDX_ORDERS_STATUS_ORDER ON ORDERS (STATUS, ORDER_ID, CUSTOMER_ID);
 
--- Create procedures
-CREATE PROCEDURE InsertOrder AS
-    INSERT INTO ORDERS VALUES (?, ?, ?, ?, ?);
+CREATE VIEW ORDERSTATUS (
+   STATUS,
+   CNT
+)  AS SELECT STATUS,COUNT(*) FROM ORDERS GROUP BY STATUS;
 
-CREATE PROCEDURE DIRECTED CountByStatus AS
-    SELECT COUNT(*) AS cnt FROM ORDERS WHERE status = ?;
+CREATE DIRECTED PROCEDURE CountByStatus
+   AS
+BEGIN
+   SELECT COUNT(*) AS cnt FROM ORDERS WHERE status = ?;
+END;
 
-CREATE PROCEDURE DIRECTED FROM CLASS com.example.procedures.DeleteByStatusProc;
+CREATE DIRECTED PROCEDURE 
+   FROM CLASS com.example.procedures.DeleteByStatusProc;
+
+CREATE PROCEDURE InsertOrder
+   PARTITION ON TABLE ORDERS COLUMN CUSTOMER_ID PARAMETER 1
+   AS
+BEGIN
+   INSERT INTO ORDERS VALUES (?, ?, ?, ?, ?);
+END;
+
+END_OF_BATCH
 ```
 
 Load the procedures JAR:
